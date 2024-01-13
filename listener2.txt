@@ -1,0 +1,73 @@
+import paho.mqtt.client as mqtt
+from bluepy.btle import Scanner, DefaultDelegate, Peripheral
+import time
+import json
+
+class BNO055:
+    def __init__(self, mac_addr):
+        self.mac_addr = mac_addr
+        self.connected = False
+        self.peripheral = None
+        self.mqtt_client = mqtt.Client()
+
+    def connect(self):
+        class ScanDelegate(DefaultDelegate):
+            def __init__(self):
+                DefaultDelegate.__init__(self)
+
+            def handleDiscovery(self, dev, isNewDev, isNewData):
+                if isNewDev:
+                    print("Discovered device:", dev.addr)
+
+        scanner = Scanner().withDelegate(ScanDelegate())
+        devices = scanner.scan(5.0)
+
+        for dev in devices:
+            if dev.addr == self.mac_addr:
+                print("Found ESP32")
+                self.peripheral = Peripheral(dev)
+                self.connected = True
+                break
+
+        if not self.connected:
+            print("ESP32 not found")
+            return
+
+        time.sleep(2.0)
+        services = self.peripheral.getServices()
+        for service in services:
+            if service.uuid == "180F":
+                print("Found service")
+                self.ch = service.getCharacteristics()[0]
+                self.ch.handle = self.ch.getHandle() + 1
+                self.peripheral.writeCharacteristic(self.ch.handle, b'\x01\x00')
+
+    def stream_data(self, topic):
+        if not self.connected:
+            print("Not connected to ESP32")
+            return
+
+        def on_connect(client, userdata, flags, rc):
+            print("Connected to MQTT broker with result code " + str(rc))
+
+        def on_disconnect(client, userdata, rc):
+            print("Disconnected from MQTT broker with result code " + str(rc))
+
+        self.mqtt_client.on_connect = on_connect
+        self.mqtt_client.on_disconnect = on_disconnect
+        self.mqtt_client.connect("broker.hivemq.com", 1883, 60)
+        self.mqtt_client.loop_start()
+
+        while True:
+            if self.peripheral.waitForNotifications(1.0):
+                continue
+            data = self.ch.read().decode()
+            print(data)
+            payload = json.dumps({"data": data})
+            self.mqtt_client.publish(topic, payload)
+
+    def disconnect(self):
+        if not self.connected:
+            return
+        self.peripheral.disconnect()
+        self.connected = False
