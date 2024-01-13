@@ -1,0 +1,19 @@
+import paho.mqtt.client as mqtt
+
+MQTT_BROKER = "YOUR_MQTT_BROKER"
+MQTT_PORT = 1883
+MQTT_TOPIC = "wearable/orientation"
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected to MQTT broker with result code " + str(rc))
+    client.subscribe(MQTT_TOPIC)
+
+def on_message(client, userdata, msg):
+    print("Received message on topic " + msg.topic + " with payload " + msg.payload.decode())
+
+client = mqtt.Client()
+client.on_connect = on_connect
+client.on_message = on_message
+client.connect(MQTT_BROKER, MQTT_PORT)
+
+client.loop_forever()
